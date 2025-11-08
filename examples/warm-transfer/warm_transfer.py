@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from typing import Literal
+from livekit.agents.extensions.interruption_handler import InterruptionHandler
 
 from dotenv import load_dotenv
 
@@ -322,6 +323,23 @@ async def entrypoint(ctx: JobContext):
         tts=_create_tts(),
         turn_detection=MultilingualModel(),
     )
+    # --- add after creating session in warm_transfer.py ---
+    handler = InterruptionHandler()
+    orig_handle_transcription = session._on_transcription
+
+    async def patched_transcription(event):
+        result = await handler.process_transcription(
+            event.text, getattr(event, "confidence", 1.0)
+        )
+        if result == "ignore":
+            return
+        if result == "interrupt":
+            await session.stop_speaking()
+        await orig_handle_transcription(event)
+
+    session._on_transcription = patched_transcription
+
+
 
     support_agent = SupportAgent()
 
